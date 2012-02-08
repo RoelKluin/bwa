@@ -192,24 +192,26 @@ static inline int __occ_aux(uint64_t y)
 #define _mm_sum2si128_si64(t)			\
 	_mm_add_si64(_mm_movepi64_pi64(t), _mm_cvtsi64x_si64(_mm_extract_epi64(t, 1)))
 
-static inline uint64_t bwt_occ(bwtint_t k, __m64 x, const uint32_t *const p)
+static inline uint64_t bwt_occ(const char k, __m64 x, const uint32_t *const p)
 {
 	__m128i t, t2;
-	t2 = t = _mm_set1_epi64(x);
-	switch (k&0x60) {
-		case 0x60:
+	t2 = _mm_set1_epi64(x);
+	t = _mm_setzero_si128();
+	switch (k&0xc0) {
+		case 0xc0:
 			x = _mm_set_pi32(p[-6], p[-5]);
-		case 0x40:
+		case 0x80:
 			t = _mm_set_epi64(x, _mm_set_pi32(p[-4], p[-3]));
-		case 0x20: x = _mm_set_pi32(p[-2], p[-1]);
+			t = _mm_xor_si128(t, t2);
+			t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
+			t = _mm_and_si128(t, n_mask_128[0]);
+		case 0x40: x = _mm_set_pi32(p[-2], p[-1]);
 	}
-	t = _mm_nc_combmask_epi128(t, t2, n_mask_128[0]);
 
 	t2 = _mm_xor_si128(_mm_set_epi64(x, _mm_set_pi32(p[0], p[1])), t2);
 	t2 = _mm_and_si128(t2, _mm_srli_epi64(t2, 1));
 
-	x = _mm_srli_si64(n_mask_64[7], ((k&31)<<1));
-	x = _mm_sub_si64(n_mask_64[2], x);
+	x = _mm_slli_si64(n_mask_64[2], k & 63); 
 	t2 = _mm_and_si128(t2, _mm_set_epi64(n_mask_64[2], x));
 
 	t = _mm_add_epi64(t, t2);
@@ -235,9 +237,10 @@ static inline bwtint_t bwt_invPsi(const bwt_t *bwt, bwtint_t isa)
 		c = bwt_B0(bwt, _i);
 		if (likely(isa < bwt->seq_len)) {
 			const uint32_t *p;
+			_i ^= 31;
 			isa = bwt->L2[c] + ((const bwtint_t *)(p = bwt_occ_intv(bwt, _i)))[c];
 			p += sizeof(bwtint_t) + ((_i&0x60)>>4);
-			c = bwt_occ(_i, n_mask_64[c], p);
+			c = bwt_occ(_i << 1, n_mask_64[c], p);
 			isa += c * 0x101010101010101ul >> 56;
 		} else {
 			isa = (isa == bwt->seq_len ? bwt->L2[c+1] : bwt->L2[c]);
