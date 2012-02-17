@@ -73,15 +73,15 @@ void bwt_gen_cnt_table(bwt_t *bwt)
 			x |= (((i&3) == j) + ((i>>2&3) == j) + ((i>>4&3) == j) + (i>>6 == j)) << (j<<3);
 		bwt->cnt_table[i] = x;
 	}
-	n_mask_64[0] = _mm_cvtsi64x_si64(0xfffffffffffffffful);
-	n_mask_64[1] = _mm_cvtsi64x_si64(0xaaaaaaaaaaaaaaaaul);
-	n_mask_64[2] = _mm_cvtsi64x_si64(0x5555555555555555ul);
+	n_mask_64[0] = _mm_cvtsi64_m64(0xfffffffffffffffful);
+	n_mask_64[1] = _mm_cvtsi64_m64(0xaaaaaaaaaaaaaaaaul);
+	n_mask_64[2] = _mm_cvtsi64_m64(0x5555555555555555ul);
 	n_mask_64[3] = _mm_setzero_si64();
-	n_mask_64[4] = _mm_cvtsi64x_si64(0xfffffffffffffffful);
-	n_mask_64[5] = _mm_cvtsi64x_si64(0x3333333333333333ul);
-	n_mask_64[6] = _mm_cvtsi64x_si64(0x0f0f0f0f0f0f0f0ful);
-	n_mask_64[7] = _mm_cvtsi64x_si64(0x1555555555555555ul);
-	n_mask_64[8] = _mm_cvtsi64x_si64(0x1111111111111111ul);
+	n_mask_64[4] = _mm_cvtsi64_m64(0xfffffffffffffffful);
+	n_mask_64[5] = _mm_cvtsi64_m64(0x3333333333333333ul);
+	n_mask_64[6] = _mm_cvtsi64_m64(0x0f0f0f0f0f0f0f0ful);
+	n_mask_64[7] = _mm_cvtsi64_m64(0x1555555555555555ul);
+	n_mask_64[8] = _mm_cvtsi64_m64(0x1111111111111111ul);
 	n_mask_128[0] = _mm_set1_epi64(n_mask_64[2]);
 	n_mask_128[1] = _mm_set1_epi64(n_mask_64[5]);
 	n_mask_128[2] = _mm_set1_epi64(n_mask_64[6]);
@@ -155,15 +155,15 @@ static inline int __occ_aux(uint64_t y)
 })
 
 //nucleo_upto5mask
-#define _mm_nc_combmask_xxx(x, xor, m, t1, t2) ({		\
-	x = _mm_xor_##t1(x, xor);				\
-	x = _mm_and_##t1(x, _mm_srli_##t2(x, 1));		\
-	_mm_and_##t1(x, m);					\
+#define _mm_nuptomask_xxx(a, xor, m, t1, t2) ({		\
+	a = _mm_xor_##t1(a, xor);				\
+	a = _mm_and_##t1(a, _mm_srli_##t2(a, 1));		\
+	_mm_and_##t1(a, m);					\
 })
 
-#define _mm_nc_combmask_si64(q, x, m) _mm_nc_combmask_xxx(q, x, m, si64, si64)
-#define _mm_nc_combmask_epi128(t, x, m) 				\
-	_mm_nc_combmask_xxx(t, x, m, si128, epi64)
+#define _mm_nuptomask_si64(a, xor, m) _mm_nuptomask_xxx(a, xor, m, si64, si64)
+#define _mm_nuptomask_epi128(a, xor, m) 				\
+	_mm_nuptomask_xxx(a, xor, m, si128, epi64)
 
 // e.g. nucleo_3mask()
 #define _mm_nmask_xxx(q, q2, shft, m, t1, t2) ({\
@@ -178,19 +178,19 @@ static inline int __occ_aux(uint64_t y)
 #define _mm_nmask_epi128(q, q2, shft, m)	\
 	_mm_nmask_xxx(q, q2, shft, m, si128, epi64)
 
-// e.g. als nucleo_combine_3mask()
-#define _mm_cn_mask_xxx(x, y, m, shft, t1, t2) ({	\
-	x = _mm_and_##t1(y, m);				\
-	y = _mm_xor_##t1(y, x);				\
+// e.g. as nucleo_combine_3mask()
+#define _mm_ncmb_mask_xxx(y, t, m, shft, t1, t2) ({	\
+	t = _mm_and_##t1(y, m);				\
+	y = _mm_xor_##t1(y, t);				\
 	y = _mm_srli_##t2(y, shft);			\
-	_mm_add_##t2(x, y);				\
+	_mm_add_##t2(t, y);				\
 })
 
-#define _mm_cn_mask_si64(x, q, m, shft) _mm_cn_mask_xxx(x, q, m, shft, si64, si64)
-#define _mm_cn_mask_epi128(t2, t, m, shft) _mm_cn_mask_xxx(t2, t, m, shft, si128, epi64)
+#define _mm_ncmb_mask_si64(q, t, m, shft) _mm_ncmb_mask_xxx(q, t, m, shft, si64, si64)
+#define _mm_ncmb_mask_epi128(t, t2, m, shft) _mm_ncmb_mask_xxx(t, t2, m, shft, si128, epi64)
 
 #define _mm_sum2si128_si64(t)			\
-	_mm_add_si64(_mm_movepi64_pi64(t), _mm_cvtsi64x_si64(_mm_extract_epi64(t, 1)))
+	_mm_add_si64(_mm_movepi64_pi64(t), _mm_cvtsi64_m64(_mm_extract_epi64(t, 1)))
 
 static inline uint64_t bwt_occ(const char k, __m64 x, const uint32_t *const p)
 {
@@ -309,104 +309,156 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 		}
 		--*l;
 	}
-	bwtint_t w, y, z;
+	__m64 v, w, y, z;
 	const uint32_t *p, *p2;
 	bwtint_t n = *l;
 
 	--k;
 	*l = ((const bwtint_t *)(p = bwt_occ_intv(bwt, n)))[c] + bwt->L2[c];
-	const uint64_t x = (c == 1 ? 0xaaaaaaaaaaaaaaaaul :
-		(c == 2 ? 0x5555555555555555ul :
-		(c == 3 ? 0x0ul : 0xfffffffffffffffful)));
+	__m64 x = n_mask_64[c];
 
 	p += sizeof(bwtint_t) + ((n&0x60)>>4);
-	w = ((uint64_t)p[0]<<32 | p[1]) ^ x;
-	y = w & (w >> 1) & occ_mask2(n);
+	y = _mm_set_pi32(p[0], p[1]);
+	y = _mm_xor_si64(y, x);
+
+	w = _mm_srli_si64(y, 1);
+	y = _mm_and_si64(y, w);
+	w = _mm_slli_si64(n_mask_64[2], (~n & 31) << 1);
+	y = _mm_and_si64(y, w); //y = y & (y >> 1) & occ_mask2(n);
+
 	n = ((n^k)&~31) | ((k&0x60) >> 4);
-	w = 0ul;
-	z = occ_mask2(k);
+	w = n_mask_64[3]; // TODO: similar to bwt_occ: _mm_set1_epi64(x); ??
+	z = _mm_slli_si64(n_mask_64[2], (~k & 31) << 1); //occ_mask2(k);
 	switch (n) {
-	case 0x6: w = nucleo_upto5mask(((uint64_t)p[-6]<<32 | p[-5]), x, k);
-	case 0x4: w += nucleo_upto5mask(((uint64_t)p[-4]<<32 | p[-3]), x, k);
-	case 0x2: w += nucleo_upto5mask(((uint64_t)p[-2]<<32 | p[-1]), x, k);
-		w = nucleo_combine_3mask(k, w);
-	case 0x0: z &= y;
-		if (y == z) {
+	case 0x6: v = _mm_set_pi32(p[-6], p[-5]);
+		w = _mm_nuptomask_si64(v, x, n_mask_64[2]); //nucleo_upto5mask()
+	case 0x4: v = _mm_set_pi32(p[-4], p[-3]);
+		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+		w = _mm_add_si64(w, v);
+	case 0x2: v = _mm_set_pi32(p[-2], p[-1]);
+		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+		w = _mm_add_si64(w, v);
+		w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
+	case 0x0: z = _mm_and_si64(z, y);
+		if (_mm_cvtm64_si64(y) == _mm_cvtm64_si64(z)) { //TODO rewrite, xor?
 			k = (bwtint_t)(-1);
 			goto out;
 		}
-		y = nucleo_3mask(y);
-		z = nucleo_3mask(z) + w;
+		y = _mm_nmask_si64(y, v, 2, n_mask_64[5]); // nucleo_3mask(y)
+		z = _mm_nmask_si64(z, v, 2, n_mask_64[5]); // nucleo_3mask(z)
+		z = _mm_add_si64(z, w);
 		k = *l;
 		break;
-	case 0x24:w = nucleo_upto5mask(((uint64_t)p[-6]<<32 | p[-5]), x, k);
-	case 0x22:w += nucleo_upto5mask(((uint64_t)p[-4]<<32 | p[-3]), x, k);
-		w = nucleo_combine_3mask(k, w);
-	case 0x20: k = nucleo_upto5mask(((uint64_t)p[-2]<<32 | p[-1]), x, k);
-		y += k;
-		k &= z;
-		z = nucleo_3mask(k);
-		y = nucleo_combine_3mask(k, y);
-		if (y == z) {
+	case 0x24: v = _mm_set_pi32(p[-6], p[-5]);
+		w = _mm_nuptomask_si64(v, x, n_mask_64[2]); //nucleo_upto5mask()
+	case 0x22: v = _mm_set_pi32(p[-4], p[-3]);
+		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+		w = _mm_add_si64(w, v);
+		w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2); //nucleo_combine_3mask()
+	case 0x20:v = _mm_set_pi32(p[-2], p[-1]);
+		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+		y = _mm_add_si64(y, v);
+		z = _mm_and_si64(z, v);
+		z = _mm_nmask_si64(z, v, 2, n_mask_64[5]);
+		y = _mm_ncmb_mask_si64(y, v, n_mask_64[5], 2);
+		if (_mm_cvtm64_si64(y) == _mm_cvtm64_si64(z)) { //TODO
 			k = (bwtint_t)(-1);
 			goto out;
 		}
-		z += w;
+		z = _mm_add_si64(z, w);
 		k = *l;
 		break;
 	default:
 		k = ((const bwtint_t *)(p2 = bwt_occ_intv(bwt, k)))[c] + bwt->L2[c];
 		n &= 0x66;
-		p2 += sizeof(bwtint_t) + (n & 0x6); //is really k
-		w = ((uint64_t)p2[0]<<32 | p2[1]) ^ x;
-		z &= w & (w >> 1);
-		w = 0ul;
+		p2 += sizeof(bwtint_t) + (n & 0x6); //n&6 is old k
+		w = _mm_set_pi32(p2[0], p2[1]);
+		w = _mm_xor_si64(w, x);
+
+		v = _mm_srli_si64(w, 1);
+		v = _mm_and_si64(v, w);
+		z = _mm_and_si64(z, v);
+		w = n_mask_64[3];
 		switch (n) {
-		case 0x06: w = nucleo_upto5mask(((uint64_t)p[-6]<<32 | p[-5]), x, n);
-		case 0x26: w += nucleo_upto5mask(((uint64_t)p[-4]<<32 | p[-3]), x, n);
-		case 0x46: w += nucleo_upto5mask(((uint64_t)p[-2]<<32 | p[-1]), x, n);
-			w = nucleo_combine_3mask(n, w);
-		case 0x66: z += nucleo_upto5mask(((uint64_t)p2[-6]<<32 | p2[-5]), x, n);
-			z += nucleo_upto5mask(((uint64_t)p2[-4]<<32 | p2[-3]), x, n);
-			z = nucleo_combine_3mask(n, z);
-			n = nucleo_upto5mask(((uint64_t)p2[-2]<<32 | p2[-1]), x, n);
-			z += nucleo_3mask(n);
+		case 0x06: v = _mm_set_pi32(p[-6], p[-5]);
+			w = _mm_nuptomask_si64(v, x, n_mask_64[2]); //nucleo_upto5mask()
+		case 0x26: v = _mm_set_pi32(p[-4], p[-3]);
+			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			w = _mm_add_si64(w, v);
+		case 0x46: v = _mm_set_pi32(p[-2], p[-1]);
+			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			w = _mm_add_si64(w, v);
+			w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
+		case 0x66: v = _mm_set_pi32(p2[-6], p2[-5]);
+			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			z = _mm_add_si64(z, v);
+
+			v = _mm_set_pi32(p2[-4], p2[-3]);
+			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			z = _mm_add_si64(z, v);
+
+			z = _mm_ncmb_mask_si64(z, v, n_mask_64[5], 2);
+
+			v = _mm_set_pi32(p2[-2], p2[-1]);
+			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			v = _mm_nmask_si64(v, x, 2, n_mask_64[5]); //FIXME: sets x.
+
+			z = _mm_add_si64(z, v);
 			break;
-		case 0x60: w = nucleo_upto5mask(((uint64_t)p[-6]<<32 | p[-5]), x, n);
-		case 0x40: w += nucleo_upto5mask(((uint64_t)p[-4]<<32 | p[-3]), x, n);
-		case 0x20: w += nucleo_upto5mask(((uint64_t)p[-2]<<32 | p[-1]), x, n);
-			w = nucleo_combine_3mask(n, w);
-		case 0x00: z = nucleo_3mask(z);
+		case 0x60: v = _mm_set_pi32(p[-6], p[-5]);
+			w = _mm_nuptomask_si64(v, x, n_mask_64[2]); //nucleo_upto5mask()
+		case 0x40: v = _mm_set_pi32(p[-4], p[-3]);
+			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			w = _mm_add_si64(w, v);
+		case 0x20: v = _mm_set_pi32(p[-2], p[-1]);
+			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			w = _mm_add_si64(w, v);
+			w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
+		case 0x00: z = _mm_nmask_si64(z, v, 2, n_mask_64[5]);
 			break;
 		default:
 			switch (n) {
-			case 0x24: w = nucleo_upto5mask(((uint64_t)p[-6]<<32 | p[-5]), x, n);
-			case 0x04: w += nucleo_upto5mask(((uint64_t)p[-4]<<32 | p[-3]), x, n);
-			case 0x64: w += nucleo_upto5mask(((uint64_t)p[-2]<<32 | p[-1]), x, n);
-				w = nucleo_combine_3mask(n, w);
-			case 0x44: z += nucleo_upto5mask(((uint64_t)p2[-4]<<32 | p2[-3]), x, n);
+			case 0x24: v = _mm_set_pi32(p[-6], p[-5]);
+				w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			case 0x04: v = _mm_set_pi32(p[-4], p[-3]);
+				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+				w = _mm_add_si64(w, v);
+			case 0x64: v = _mm_set_pi32(p[-2], p[-1]);
+				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+				w = _mm_add_si64(w, v);
+				w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
+			case 0x44: v = _mm_set_pi32(p2[-4], p2[-3]);
+				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+				z = _mm_add_si64(z, v);
 				break;
-			case 0x42: w = nucleo_upto5mask(((uint64_t)p[-6]<<32 | p[-5]), x, n);
-			case 0x62: w += nucleo_upto5mask(((uint64_t)p[-4]<<32 | p[-3]), x, n);
-			case 0x02: w += nucleo_upto5mask(((uint64_t)p[-2]<<32 | p[-1]), x, n);
-				w = nucleo_combine_3mask(n, w);
+			case 0x42:  v = _mm_set_pi32(p[-6], p[-5]);
+				w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			case 0x62: v = _mm_set_pi32(p[-4], p[-3]);
+				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+				w = _mm_add_si64(w, v);
+			case 0x02: v = _mm_set_pi32(p[-2], p[-1]);
+				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+				w = _mm_add_si64(w, v);
+				w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
 			}
-			z += nucleo_upto5mask(((uint64_t)p2[-2]<<32 | p2[-1]), x, n);
-			z = nucleo_combine_3mask(n, z);
+			v = _mm_set_pi32(p2[-2], p2[-1]);
+			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+			z = _mm_add_si64(z, v);
+			z = _mm_ncmb_mask_si64(z, v, n_mask_64[5], 2);
 		}
-		y = nucleo_3mask(y);
+		y = _mm_nmask_si64(y, v, 2, n_mask_64[5]);
 	}
-	y += w;
-	z = nucleo_combine_f0mask(w, z);
-	y = nucleo_combine_f0mask(w, y);
+	y = _mm_add_si64(y, w);
+	z = _mm_ncmb_mask_si64(z, v, n_mask_64[6], 4);
+	y = _mm_ncmb_mask_si64(y, v, n_mask_64[6], 4);
 	/*y = nucleo_ffmask(y);
 	z = nucleo_ffmask(z);
 	z = nucleo_4fmask(z);
 	y = nucleo_4fmask(y);
 	*l += nucleo_8fmask(y);
 	k += nucleo_8fmask(z) + 1;*/
-	k += (z * 0x101010101010101ul >> 56) + 1;
-	*l += y * 0x101010101010101ul >> 56;
+	k += (_mm_cvtm64_si64(z) * 0x101010101010101ul >> 56) + 1;
+	*l += _mm_cvtm64_si64(y) * 0x101010101010101ul >> 56;
 out:
 	return k;
 }
