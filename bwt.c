@@ -82,79 +82,14 @@ void bwt_gen_cnt_table(bwt_t *bwt)
 	n_mask_64[6] = _mm_cvtsi64_m64(0x0f0f0f0f0f0f0f0ful);
 	n_mask_64[7] = _mm_cvtsi64_m64(0x1555555555555555ul);
 	n_mask_64[8] = _mm_cvtsi64_m64(0x1111111111111111ul);
+	//n_mask_64[9] = _mm_cvtsi64_m64(0x00ff00ff00ff00fful);
+	//n_mask_64[10] = _mm_cvtsi64_m64(0x0000ffff0000fffful);
+	//n_mask_64[11] = _mm_cvtsi64_m64(0x00000000fffffffful);
 	n_mask_128[0] = _mm_set1_epi64(n_mask_64[2]);
 	n_mask_128[1] = _mm_set1_epi64(n_mask_64[5]);
 	n_mask_128[2] = _mm_set1_epi64(n_mask_64[6]);
 }
 
-static inline int __occ_aux(uint64_t y)
-{
-	// reduce nucleotide counting to bits counting
-	y = (y >> 1) & y;
-	// count the number of 1s in y
-	y = (y & 0x1111111111111111ul) + (y >> 2 & 0x1111111111111111ul);
-	return ((y + (y >> 4)) & 0xf0f0f0f0f0f0f0ful) * 0x101010101010101ul >> 56;
-}
-
-#define occ_mask2(n) (0x5555555555555555ul - (0x1555555555555555ul >> ((n&31)<<1)))
-
-//reduce nucleotide to bit counting - after w xor n_mask[c].
-#define nucleo_5mask(w) 	(w & (w >> 1) & 0x5555555555555555ul)
-
-//transforms in five stages from bits to number of bits.
-//these do not allow addition of several of the previous bit-count stage
-#define nucleo_3mask(w)		((w + (w >> 2)) & 0x3333333333333333ul)
-#define nucleo_f0mask(w)	((w + (w >> 4)) & 0x0f0f0f0f0f0f0f0ful)
-
-// The combined three of these do the same as w * 0x101010101010101ull >> 56
-#define nucleo_ffmask(w)	((w + (w >> 8)) & 0x00ff00ff00ff00fful)
-#define nucleo_4fmask(w)	((w + (w >> 16)) & 0x0000ffff0000fffful)
-#define nucleo_8fmask(w)	((w + (w >> 32)) & 0x00000000fffffffful)
-
-//for convenience, these macros do several stages in one call.
-#define nucleo_upto5mask(p, x, w) ({		\
-	w = (p) ^ (x);				\
-	nucleo_5mask(w);			\
-})
-
-#define nucleo_upto3mask(p, x, w) ({		\
-	w = nucleo_upto5mask(p, x, w);		\
-	nucleo_3mask(w);			\
-})
-
-#define nucleo_uptof0mask(p, x, w) ({		\
-	w = nucleo_upto3mask(p, x, w);		\
-	nucleo_f0mask(w);			\
-})
-
-// These combine macros are alternative stages from bits to number of bits,
-// these once allow the addition of several of the previous bit-count stage
-#define nucleo_combine_3mask(v, w) ({		\
-	v = w & 0x3333333333333333ul;		\
-	v + ((w ^ v) >> 2);			\
-})
-
-#define nucleo_combine_f0mask(v, w) ({		\
-	v = w & 0xf0f0f0f0f0f0f0ful;		\
-	v + ((w ^ v) >> 4);			\
-})
-
-#define nucleo_combine_ffmask(v, w) ({		\
-	v = w & 0x00ff00ff00ff00fful;		\
-	v + ((w ^ v) >> 8);			\
-})
-
-#define nucleo_combine_4fmask(v, w) ({		\
-	v = w & 0x0000ffff0000fffful;		\
-	v + ((w ^ v) >> 16);			\
-})
-
-#define nucleo_combine_8fmask(v, w) ({		\
-	v = w & 0x00000000fffffffful;		\
-	v + ((w ^ v) >> 32);			\
-})
-
-//nucleo_upto5mask
 #define _mm_nuptomask_xxx(a, xor, m, t1, t2) ({		\
 	a = _mm_xor_##t1(a, xor);				\
 	a = _mm_and_##t1(a, _mm_srli_##t2(a, 1));		\
@@ -165,7 +100,6 @@ static inline int __occ_aux(uint64_t y)
 #define _mm_nuptomask_epi128(a, xor, m) 				\
 	_mm_nuptomask_xxx(a, xor, m, si128, epi64)
 
-// e.g. nucleo_3mask()
 #define _mm_nmask_xxx(q, q2, shft, m, t1, t2) ({\
 	q2 = _mm_srli_##t2(q, shft);		\
 	q = _mm_add_##t2(q, q2);		\
@@ -178,7 +112,6 @@ static inline int __occ_aux(uint64_t y)
 #define _mm_nmask_epi128(q, q2, shft, m)	\
 	_mm_nmask_xxx(q, q2, shft, m, si128, epi64)
 
-// e.g. as nucleo_combine_3mask()
 #define _mm_ncmb_mask_xxx(y, t, m, shft, t1, t2) ({	\
 	t = _mm_and_##t1(y, m);				\
 	y = _mm_xor_##t1(y, t);				\
@@ -331,7 +264,7 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 	z = _mm_slli_si64(n_mask_64[2], (~k & 31) << 1); //occ_mask2(k);
 	switch (n) {
 	case 0x6: v = _mm_set_pi32(p[-6], p[-5]);
-		w = _mm_nuptomask_si64(v, x, n_mask_64[2]); //nucleo_upto5mask()
+		w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 	case 0x4: v = _mm_set_pi32(p[-4], p[-3]);
 		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 		w = _mm_add_si64(w, v);
@@ -344,17 +277,17 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 			k = (bwtint_t)(-1);
 			goto out;
 		}
-		y = _mm_nmask_si64(y, v, 2, n_mask_64[5]); // nucleo_3mask(y)
-		z = _mm_nmask_si64(z, v, 2, n_mask_64[5]); // nucleo_3mask(z)
+		y = _mm_nmask_si64(y, v, 2, n_mask_64[5]);
+		z = _mm_nmask_si64(z, v, 2, n_mask_64[5]);
 		z = _mm_add_si64(z, w);
 		k = *l;
 		break;
 	case 0x24: v = _mm_set_pi32(p[-6], p[-5]);
-		w = _mm_nuptomask_si64(v, x, n_mask_64[2]); //nucleo_upto5mask()
+		w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 	case 0x22: v = _mm_set_pi32(p[-4], p[-3]);
 		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 		w = _mm_add_si64(w, v);
-		w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2); //nucleo_combine_3mask()
+		w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
 	case 0x20:v = _mm_set_pi32(p[-2], p[-1]);
 		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 		y = _mm_add_si64(y, v);
@@ -381,7 +314,7 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 		w = n_mask_64[3];
 		switch (n) {
 		case 0x06: v = _mm_set_pi32(p[-6], p[-5]);
-			w = _mm_nuptomask_si64(v, x, n_mask_64[2]); //nucleo_upto5mask()
+			w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 		case 0x26: v = _mm_set_pi32(p[-4], p[-3]);
 			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 			w = _mm_add_si64(w, v);
@@ -406,7 +339,7 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 			z = _mm_add_si64(z, v);
 			break;
 		case 0x60: v = _mm_set_pi32(p[-6], p[-5]);
-			w = _mm_nuptomask_si64(v, x, n_mask_64[2]); //nucleo_upto5mask()
+			w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 		case 0x40: v = _mm_set_pi32(p[-4], p[-3]);
 			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 			w = _mm_add_si64(w, v);
@@ -451,12 +384,14 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 	y = _mm_add_si64(y, w);
 	z = _mm_ncmb_mask_si64(z, v, n_mask_64[6], 4);
 	y = _mm_ncmb_mask_si64(y, v, n_mask_64[6], 4);
-	/*y = nucleo_ffmask(y);
-	z = nucleo_ffmask(z);
-	z = nucleo_4fmask(z);
-	y = nucleo_4fmask(y);
-	*l += nucleo_8fmask(y);
-	k += nucleo_8fmask(z) + 1;*/
+	/*y = _mm_nmask_si64(y, v, 8, n_mask_64[9]);
+	z = _mm_nmask_si64(z, v, 8, n_mask_64[9]);
+	y = _mm_nmask_si64(y, v, 16, n_mask_64[10]);
+	z = _mm_nmask_si64(z, v, 16, n_mask_64[10]);
+	y = _mm_nmask_si64(y, v, 32, n_mask_64[11]);
+	z = _mm_nmask_si64(z, v, 32, n_mask_64[11]);
+	*l += _mm_cvtm64_si64(y);
+	k += _mm_cvtm64_si64(z)+ 1;*/
 	k += (_mm_cvtm64_si64(z) * 0x101010101010101ul >> 56) + 1;
 	*l += _mm_cvtm64_si64(y) * 0x101010101010101ul >> 56;
 out:
