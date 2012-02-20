@@ -128,18 +128,15 @@ void bwt_gen_cnt_table(bwt_t *bwt)
 static inline uint64_t bwt_occ(const char k, __m64 x, const uint32_t *const p)
 {
 	__m128i t, t2;
-	t2 = _mm_set1_epi64(x);
-	t = _mm_setzero_si128();
+	t = t2 = _mm_set1_epi64(x);
 	switch (k&0xc0) {
-		case 0xc0:
-			x = _mm_set_pi32(p[-6], p[-5]);
-		case 0x80:
-			t = _mm_set_epi64(x, _mm_set_pi32(p[-4], p[-3]));
-			t = _mm_xor_si128(t, t2);
-			t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
-			t = _mm_and_si128(t, n_mask_128[0]);
+		case 0xc0: x = _mm_set_pi32(p[-6], p[-5]);
+		case 0x80: t = _mm_set_epi64(x, _mm_set_pi32(p[-4], p[-3]));
 		case 0x40: x = _mm_set_pi32(p[-2], p[-1]);
 	}
+	t = _mm_xor_si128(t, t2);
+	t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
+	t = _mm_and_si128(t, n_mask_128[0]);
 
 	t2 = _mm_xor_si128(_mm_set_epi64(x, _mm_set_pi32(p[0], p[1])), t2);
 	t2 = _mm_and_si128(t2, _mm_srli_epi64(t2, 1));
