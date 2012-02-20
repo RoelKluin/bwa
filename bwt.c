@@ -239,52 +239,60 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 		}
 		--*l;
 	}
+	--k;
+
+	__m128i t, t2;
 	__m64 v, w, y, z;
 	const uint32_t *p, *p2;
 	bwtint_t n = *l;
 
-	--k;
 	*l = ((const bwtint_t *)(p = bwt_occ_intv(bwt, n)))[c] + bwt->L2[c];
 	__m64 x = n_mask_64[c];
 
 	p += sizeof(bwtint_t) + ((n&0x60)>>4);
+
+	t2 = _mm_set1_epi64(x);
+	t = t2;
+
 	y = _mm_set_pi32(p[0], p[1]);
 	y = _mm_xor_si64(y, x);
 
-	w = _mm_srli_si64(y, 1);
-	y = _mm_and_si64(y, w);
-	w = _mm_slli_si64(n_mask_64[2], (~n & 31) << 1);
+	v = _mm_srli_si64(y, 1);
+	y = _mm_and_si64(y, v);
+	v = n_mask_64[2];
+	w = _mm_slli_si64(v, (~n & 31) << 1);
+	v = x;
 	y = _mm_and_si64(y, w); //y = y & (y >> 1) & occ_mask2(n);
 
-	n = ((n^k)&~31) | ((k&0x60) >> 4);
-	w = n_mask_64[3]; // TODO: similar to bwt_occ: _mm_set1_epi64(x); ??
+	n = ((k^n)&~31) | ((k&0x60) >> 4);
+	w = n_mask_64[3];
 	z = _mm_slli_si64(n_mask_64[2], (~k & 31) << 1); //occ_mask2(k);
 	switch (n) {
 	case 0x6: v = _mm_set_pi32(p[-6], p[-5]);
-		w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-	case 0x4: v = _mm_set_pi32(p[-4], p[-3]);
-		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-		w = _mm_add_si64(w, v);
+	case 0x4: t = _mm_set_epi64(v, _mm_set_pi32(p[-4], p[-3]));
 	case 0x2: v = _mm_set_pi32(p[-2], p[-1]);
-		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-		w = _mm_add_si64(w, v);
-		w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
-	case 0x0: z = _mm_and_si64(z, y);
+	case 0x0:
+		z = _mm_and_si64(z, y);
 		if (_mm_cvtm64_si64(y) == _mm_cvtm64_si64(z)) { //TODO rewrite, xor?
 			k = (bwtint_t)(-1);
 			goto out;
 		}
+		t = _mm_xor_si128(t, t2);
+		t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
+		t = _mm_and_si128(t, n_mask_128[0]);
+		w = _mm_sum2si128_si64(t);
+
+		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
+		w = _mm_add_si64(w, v);
+		w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
+
 		y = _mm_nmask_si64(y, v, 2, n_mask_64[5]);
 		z = _mm_nmask_si64(z, v, 2, n_mask_64[5]);
 		z = _mm_add_si64(z, w);
 		k = *l;
 		break;
 	case 0x24: v = _mm_set_pi32(p[-6], p[-5]);
-		w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-	case 0x22: v = _mm_set_pi32(p[-4], p[-3]);
-		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-		w = _mm_add_si64(w, v);
-		w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
+	case 0x22: t = _mm_set_epi64(v, _mm_set_pi32(p[-4], p[-3]));
 	case 0x20:v = _mm_set_pi32(p[-2], p[-1]);
 		v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 		y = _mm_add_si64(y, v);
@@ -295,6 +303,12 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 			k = (bwtint_t)(-1);
 			goto out;
 		}
+		t = _mm_xor_si128(t, t2);
+		t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
+		t = _mm_and_si128(t, n_mask_128[0]);
+		t = _mm_nmask_epi128(t, t2, 2, n_mask_128[1]);
+		w = _mm_sum2si128_si64(t);
+
 		z = _mm_add_si64(z, w);
 		k = *l;
 		break;
@@ -305,21 +319,21 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 		w = _mm_set_pi32(p2[0], p2[1]);
 		w = _mm_xor_si64(w, x);
 
-		v = _mm_srli_si64(w, 1);
-		v = _mm_and_si64(v, w);
-		z = _mm_and_si64(z, v);
+		z = _mm_and_si64(z, w);
+		z = _mm_and_si64(z, _mm_srli_si64(w, 1));
 		w = n_mask_64[3];
 		switch (n) {
 		case 0x06: v = _mm_set_pi32(p[-6], p[-5]);
-			w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-		case 0x26: v = _mm_set_pi32(p[-4], p[-3]);
-			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-			w = _mm_add_si64(w, v);
+		case 0x26: t = _mm_set_epi64(v, _mm_set_pi32(p[-4], p[-3]));
+			t = _mm_xor_si128(t, t2); // can be put below ...
+			t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
+			t = _mm_and_si128(t, n_mask_128[0]);
+			w = _mm_sum2si128_si64(t); // ...until here
 		case 0x46: v = _mm_set_pi32(p[-2], p[-1]);
 			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 			w = _mm_add_si64(w, v);
 			w = _mm_ncmb_mask_si64(w, v, n_mask_64[5], 2);
-		case 0x66: v = _mm_set_pi32(p2[-6], p2[-5]);
+		case 0x66: v = _mm_set_pi32(p2[-6], p2[-5]); // TODO: t2/3?
 			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 			z = _mm_add_si64(z, v);
 
@@ -336,10 +350,11 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 			z = _mm_add_si64(z, v);
 			break;
 		case 0x60: v = _mm_set_pi32(p[-6], p[-5]);
-			w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-		case 0x40: v = _mm_set_pi32(p[-4], p[-3]);
-			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-			w = _mm_add_si64(w, v);
+		case 0x40: t = _mm_set_epi64(v, _mm_set_pi32(p[-4], p[-3]));
+			t = _mm_xor_si128(t, t2); // can be put below ...
+			t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
+			t = _mm_and_si128(t, n_mask_128[0]);
+			w = _mm_sum2si128_si64(t); // ...until here
 		case 0x20: v = _mm_set_pi32(p[-2], p[-1]);
 			v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 			w = _mm_add_si64(w, v);
@@ -349,10 +364,11 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 		default:
 			switch (n) {
 			case 0x24: v = _mm_set_pi32(p[-6], p[-5]);
-				w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-			case 0x04: v = _mm_set_pi32(p[-4], p[-3]);
-				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-				w = _mm_add_si64(w, v);
+			case 0x04: t = _mm_set_epi64(v, _mm_set_pi32(p[-4], p[-3]));
+				t = _mm_xor_si128(t, t2); // can be put below ...
+				t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
+				t = _mm_and_si128(t, n_mask_128[0]);
+				w = _mm_sum2si128_si64(t); // ...until here
 			case 0x64: v = _mm_set_pi32(p[-2], p[-1]);
 				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 				w = _mm_add_si64(w, v);
@@ -362,10 +378,11 @@ inline bwtint_t bwt_2occ(const bwt_t *bwt, bwtint_t k, bwtint_t *l, ubyte_t c)
 				z = _mm_add_si64(z, v);
 				break;
 			case 0x42:  v = _mm_set_pi32(p[-6], p[-5]);
-				w = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-			case 0x62: v = _mm_set_pi32(p[-4], p[-3]);
-				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
-				w = _mm_add_si64(w, v);
+			case 0x62: t = _mm_set_epi64(v, _mm_set_pi32(p[-4], p[-3]));
+				t = _mm_xor_si128(t, t2); // can be put below ...
+				t = _mm_and_si128(t, _mm_srli_epi64(t, 1));
+				t = _mm_and_si128(t, n_mask_128[0]);
+				w = _mm_sum2si128_si64(t); // ...until here
 			case 0x02: v = _mm_set_pi32(p[-2], p[-1]);
 				v = _mm_nuptomask_si64(v, x, n_mask_64[2]);
 				w = _mm_add_si64(w, v);
