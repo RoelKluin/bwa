@@ -101,19 +101,21 @@ typedef struct __kstring_t {
 #define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
 #endif
 
-static int ks_getuntil(kstream_t *ks, int delimiter, kstring_t *str, int *dret)
+static int ks_getuntil(kstream_t *ks, int delimiter, kstring_t *str)
 {
-	if (dret) *dret = 0;
-	str->l = 0;
-	if (ks->begin >= ks->end && ks->end != KS_BUFSIZE) return -1;
-	for (;;) {
-		int i;
+	int i = 0;
+	do {
 		if (ks->begin >= ks->end) {
 			if (ks->end == KS_BUFSIZE) {
 				ks->begin = 0;
-				ks->end = KS_READ(ks->f, ks->buf, KS_BUFSIZE);
-				if (ks->end <= 0) break;
-			} else break;
+				if ((ks->end = KS_READ(ks->f, ks->buf, KS_BUFSIZE)) <= 0) {
+					delimiter = 0;
+					break;
+				}
+			} else {
+				delimiter = 0;
+				break;
+			}
 		}
 		if (delimiter) {
 			for (i = ks->begin; i < ks->end; ++i)
@@ -125,18 +127,16 @@ static int ks_getuntil(kstream_t *ks, int delimiter, kstring_t *str, int *dret)
 		if (str->m - str->l < i - ks->begin + 1) {
 			str->m = str->l + (i - ks->begin) + 1;
 			kroundup32(str->m);
-			str->s = (char*)realloc(str->s, str->m);
+			if ((str->s = (char*)realloc(str->s, str->m)) == NULL) {
+				delimiter = -3;
+				break;
+			}
 		}
 		memcpy(str->s + str->l, ks->buf + ks->begin, i - ks->begin);
 		str->l = str->l + (i - ks->begin);
 		ks->begin = i + 1;
-		if (i < ks->end) {
-			if (dret) *dret = ks->buf[i];
-			break;
-		}
-	}
-	str->s[str->l] = '\0';
-	return str->l;
+	} while (i >= ks->end);
+	return delimiter;
 }
 
 typedef struct {
@@ -188,9 +188,16 @@ static int kseq_read(kseq_t *seq)
 		if (c == -1) return -1; /* end of file */
 		seq->last_char = c;
 	} /* the first header char has been read */
-	seq->comment.l = seq->seq.l = seq->qual.l = 0;
-	if (ks_getuntil(ks, 0, &seq->name, &c) < 0) return -1;
-	if (c != '\n') ks_getuntil(ks, '\n', &seq->comment, 0);
+	seq->name.l = seq->comment.l = seq->seq.l = seq->qual.l = 0;
+
+	c = ks_getuntil(ks, 0, &seq->name);
+	if (c != '\n') {
+		if (c >= 0) c = ks_getuntil(ks, '\n', &seq->comment);
+		if (c < 0) return c; /* only assign '\0' if all allocs succeeded */
+		seq->comment.s[seq->comment.l] = '\0';
+	}
+	seq->name.s[seq->name.l] = '\0';
+	if (ks->begin >= ks->end && ks->end != KS_BUFSIZE) return -1;
 	while ((c = ks_getc(ks)) != -1 && c != '>' && c != '+' && c != '@') {
 		if (isgraph(c)) { /* printable non-space character */
 			if (seq->seq.l + 1 >= seq->seq.m) { /* double the memory */
