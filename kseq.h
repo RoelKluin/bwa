@@ -47,19 +47,27 @@
 #include <stdlib.h>
 
 typedef struct __kstream_t {
-	char *buf;
-	int begin, end, is_eof;
+	int begin, end;
 	KS_TYPE f;
+	char *buf;
 } kstream_t;
 
-#define ks_eof(ks) ((ks)->is_eof && (ks)->begin >= (ks)->end)
-#define ks_rewind(ks) ((ks)->is_eof = (ks)->begin = (ks)->end = 0)
+#define ks_eof(ks) ((ks)->end != KS_BUFSIZE && (ks)->begin >= (ks)->end)
+#define ks_rewind(ks) ((ks)->begin = (ks)->end = 0)
 
 static inline kstream_t *ks_init(KS_TYPE f)
 {
 	kstream_t *ks = (kstream_t*)calloc(1, sizeof(kstream_t));
-	ks->f = f;
-	ks->buf = (char*)malloc(KS_BUFSIZE);
+	if (ks != NULL) {
+		ks->f = f;
+		ks->begin = 0;
+		ks->buf = (char*)malloc(KS_BUFSIZE);
+		ks->end = ks->buf != NULL ? KS_READ(ks->f, ks->buf, KS_BUFSIZE) : 0;
+		if (ks->end <= 0) {
+			free(ks);
+			ks = NULL;
+		}
+	}
 	return ks;
 }
 static inline void ks_destroy(kstream_t *ks)
@@ -72,12 +80,11 @@ static inline void ks_destroy(kstream_t *ks)
 
 static inline int ks_getc(kstream_t *ks)
 {
-	if (ks->is_eof && ks->begin >= ks->end) return -1;
 	if (ks->begin >= ks->end) {
+		if (ks->end != KS_BUFSIZE) return -1;
 		ks->begin = 0;
 		ks->end = KS_READ(ks->f, ks->buf, KS_BUFSIZE);
-		if (ks->end < KS_BUFSIZE) ks->is_eof = 1;
-		if (ks->end == 0) return -1;
+		if (ks->end <= 0) return -1;
 	}
 	return (int)ks->buf[ks->begin++];
 }
@@ -98,15 +105,14 @@ static int ks_getuntil(kstream_t *ks, int delimiter, kstring_t *str, int *dret)
 {
 	if (dret) *dret = 0;
 	str->l = 0;
-	if (ks->begin >= ks->end && ks->is_eof) return -1;
+	if (ks->begin >= ks->end && ks->end != KS_BUFSIZE) return -1;
 	for (;;) {
 		int i;
 		if (ks->begin >= ks->end) {
-			if (!ks->is_eof) {
+			if (ks->end == KS_BUFSIZE) {
 				ks->begin = 0;
 				ks->end = KS_READ(ks->f, ks->buf, KS_BUFSIZE);
-				if (ks->end < KS_BUFSIZE) ks->is_eof = 1;
-				if (ks->end == 0) break;
+				if (ks->end <= 0) break;
 			} else break;
 		}
 		if (delimiter) {
@@ -142,14 +148,22 @@ typedef struct {
 static inline kseq_t *kseq_init(KS_TYPE fd)
 {
 	kseq_t *s = (kseq_t*)calloc(1, sizeof(kseq_t));
-	s->f = ks_init(fd);
+	if (s) {
+		s->f = ks_init(fd);
+		s->last_char = 0;
+		if (s->f == NULL || s->f->end == 0) {
+			free(s);
+			s = NULL;
+		}
+	}
 	return s;
 }
 
 static inline void kseq_rewind(kseq_t *ks)
 {
 	ks->last_char = 0;
-	ks->f->is_eof = ks->f->begin = ks->f->end = 0;
+	ks->f->begin = 0;
+	ks->f->end = KS_READ(ks->f->f, ks->f->buf, KS_BUFSIZE);
 }
 static inline void kseq_destroy(kseq_t *ks)
 {
@@ -163,6 +177,7 @@ static inline void kseq_destroy(kseq_t *ks)
    >=0  length of the sequence (normal)
    -1   end-of-file
    -2   truncated quality string
+   -3   allocation error
  */
 static int kseq_read(kseq_t *seq)
 {
@@ -182,16 +197,22 @@ static int kseq_read(kseq_t *seq)
 				seq->seq.m = seq->seq.l + 2;
 				kroundup32(seq->seq.m); /* rounded to next closest 2^k */
 				seq->seq.s = (char*)realloc(seq->seq.s, seq->seq.m);
+				if (seq->seq.s == NULL)
+					break;
 			}
 			seq->seq.s[seq->seq.l++] = (char)c;
 		}
 	}
 	if (c == '>' || c == '@') seq->last_char = c; /* the first header char has been read */
+	if (seq->seq.s == NULL)
+		return -3;
 	seq->seq.s[seq->seq.l] = 0;	/* null terminated string */
 	if (c != '+') return seq->seq.l; /* FASTA */
 	if (seq->qual.m < seq->seq.m) {	/* allocate enough memory */
 		seq->qual.m = seq->seq.m;
 		seq->qual.s = (char*)realloc(seq->qual.s, seq->qual.m);
+		if (seq->qual.s == NULL)
+			return -3;
 	}
 	while ((c = ks_getc(ks)) != -1 && c != '\n'); /* skip the rest of '+' line */
 	if (c == -1) return -2; /* we should not stop here */
