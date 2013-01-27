@@ -310,7 +310,6 @@ int ksw_sse2(ksw_query_t *q, int tlen, const uint8_t *target, ksw_aux_t *a)
 #include <stdio.h>
 #include <zlib.h>
 #include "kseq.h"
-KSEQ_INIT(gzFile, gzread)
 
 unsigned char seq_nt4_table[256] = {
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 

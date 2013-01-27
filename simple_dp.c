@@ -8,7 +8,6 @@
 #include "utils.h"
 
 #include "kseq.h"
-KSEQ_INIT(gzFile, gzread)
 
 typedef struct {
 	int l;

@@ -35,7 +35,6 @@
 #include "utils.h"
 
 #include "kseq.h"
-KSEQ_INIT(gzFile, gzread)
 
 unsigned char nst_nt4_table[256] = {
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
