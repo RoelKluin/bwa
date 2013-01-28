@@ -52,9 +52,7 @@ typedef struct __kstream_t {
 	char *buf;
 } kstream_t;
 
-#define ks_eof(ks) ((ks)->end != KS_BUFSIZE && (ks)->begin >= (ks)->end)
-#define ks_rewind(ks) ((ks)->begin = (ks)->end = 0)
-
+/* caller should check that ks != NULL */
 static inline kstream_t *ks_init(KS_TYPE f)
 {
 	kstream_t *ks = (kstream_t*)calloc(1, sizeof(kstream_t));
@@ -64,6 +62,7 @@ static inline kstream_t *ks_init(KS_TYPE f)
 		ks->buf = (char*)malloc(KS_BUFSIZE);
 		ks->end = ks->buf != NULL ? KS_READ(ks->f, ks->buf, KS_BUFSIZE) : 0;
 		if (ks->end <= 0) {
+			free(ks->buf);
 			free(ks);
 			ks = NULL;
 		}
@@ -109,7 +108,7 @@ static int ks_getuntil(kstream_t *ks, int delimiter, kstring_t *str)
 			if (ks->end == KS_BUFSIZE) {
 				ks->begin = 0;
 				if ((ks->end = KS_READ(ks->f, ks->buf, KS_BUFSIZE)) <= 0) {
-					delimiter = 0;
+					delimiter = ks->end == 0 ? -1 : -4;
 					break;
 				}
 			} else {
@@ -151,7 +150,8 @@ static inline kseq_t *kseq_init(KS_TYPE fd)
 	if (s) {
 		s->f = ks_init(fd);
 		s->last_char = 0;
-		if (s->f == NULL || s->f->end == 0) {
+		if (s->f == NULL || s->f->end <= 0) {
+			free(s->f);
 			free(s);
 			s = NULL;
 		}
@@ -159,6 +159,7 @@ static inline kseq_t *kseq_init(KS_TYPE fd)
 	return s;
 }
 
+/* caller should check that ks->f->end > 0*/
 static inline void kseq_rewind(kseq_t *ks)
 {
 	ks->last_char = 0;
@@ -178,6 +179,7 @@ static inline void kseq_destroy(kseq_t *ks)
    -1   end-of-file
    -2   truncated quality string
    -3   allocation error
+   -4   instream read error (via ks_getuntil())
  */
 static int kseq_read(kseq_t *seq)
 {
