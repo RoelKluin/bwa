@@ -72,6 +72,7 @@ static inline kstream_t *ks_init(KS_TYPE f)
 static inline void ks_destroy(kstream_t *ks)
 {
 	if (ks) {
+		ks->buf -= ks->begin;
 		free(ks->buf);
 		free(ks);
 	}
@@ -81,11 +82,13 @@ static inline int ks_getc(kstream_t *ks)
 {
 	if (ks->begin >= ks->end) {
 		if (ks->end != KS_BUFSIZE) return -1;
-		ks->begin = 0;
+		ks->buf -= ks->begin;
 		ks->end = KS_READ(ks->f, ks->buf, KS_BUFSIZE);
 		if (ks->end <= 0) return -1;
+		ks->begin = 0;
 	}
-	return (int)ks->buf[ks->begin++];
+	ks->begin++;
+	return (int)*(ks->buf++);
 }
 
 #ifndef KSTRING_T
@@ -106,35 +109,38 @@ static int ks_getuntil(kstream_t *ks, int delimiter, kstring_t *str)
 	do {
 		if (ks->begin >= ks->end) {
 			if (ks->end == KS_BUFSIZE) {
-				ks->begin = 0;
+				ks->buf -= ks->begin;
 				if ((ks->end = KS_READ(ks->f, ks->buf, KS_BUFSIZE)) <= 0) {
 					delimiter = ks->end == 0 ? -1 : -4;
 					break;
 				}
+				ks->begin = 0;
 			} else {
 				delimiter = 0;
 				break;
 			}
 		}
 		if (delimiter) {
-			for (i = ks->begin; i < ks->end; ++i)
-				if (ks->buf[i] == delimiter) break;
+			for (i = 0; i + ks->begin < ks->end; ++i, ++ks->buf)
+				if (*ks->buf == delimiter) break;
 		} else {
-			for (i = ks->begin; i < ks->end; ++i)
-				if (isspace(ks->buf[i])) break;
+			for (i = 0; i + ks->begin < ks->end; ++i, ++ks->buf)
+				if (isspace(*ks->buf)) break;
 		}
-		if (str->m - str->l < i - ks->begin + 1) {
-			str->m = str->l + (i - ks->begin) + 1;
+		if (str->m - str->l < i + 1) {
+			str->m = str->l + i + 1;
 			kroundup32(str->m);
 			if ((str->s = (char*)realloc(str->s, str->m)) == NULL) {
 				delimiter = -3;
 				break;
 			}
 		}
-		memcpy(str->s + str->l, ks->buf + ks->begin, i - ks->begin);
-		str->l = str->l + (i - ks->begin);
-		ks->begin = i + 1;
-	} while (i >= ks->end);
+
+		memcpy(str->s + str->l, ks->buf - i, i);
+		++ks->buf;
+		str->l += i;
+		ks->begin += i + 1;
+	} while (ks->begin > ks->end);
 	return delimiter;
 }
 
@@ -163,8 +169,9 @@ static inline kseq_t *kseq_init(KS_TYPE fd)
 static inline void kseq_rewind(kseq_t *ks)
 {
 	ks->last_char = 0;
-	ks->f->begin = 0;
+	ks->f->buf -= ks->f->begin;
 	ks->f->end = KS_READ(ks->f->f, ks->f->buf, KS_BUFSIZE);
+	ks->f->begin = 0;
 }
 static inline void kseq_destroy(kseq_t *ks)
 {
