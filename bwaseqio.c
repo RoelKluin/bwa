@@ -45,7 +45,7 @@ void bwa_seq_close(bwa_seqio_t *bs)
 	if (bs == 0) return;
 	if (bs->is_bam) bam_close(bs->fp);
 	else {
-		gzclose(bs->ks->f->f);
+		gzclose(bs->ks->f);
 		kseq_destroy(bs->ks);
 	}
 	free(bs);

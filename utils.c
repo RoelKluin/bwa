@@ -64,6 +64,11 @@ gzFile err_xzopen_core(const char *func, const char *fn, const char *mode)
 	if ((fp = gzopen(fn, mode)) == 0) {
 		fprintf(stderr, "[%s] fail to open file '%s'. Abort!\n", func, fn);
 		abort();
+	} else {
+		/* according to zlib.h: the default buffer size is 8192 bytes. A
+		larger buffer size of, for example, 64K or 128K bytes will noticeably
+		increase the speed of decompression (reading). This uses 16Mb */
+		gzbuffer(fp, 16777216);
 	}
 	return fp;
 }
